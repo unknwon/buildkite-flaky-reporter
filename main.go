@@ -99,7 +99,7 @@ func main() {
 		// Warning when failures exceeds threshold.
 		if jobEvent.Job.State == "failed" {
 			info := store.push(jobEvent.Build.Number, jobEvent.Job.WebURL)
-			if jobEvent.Job.RetriedCount >= config.Buildkite.FailuresThreshold {
+			if jobEvent.Job.RetriedCount+1 >= config.Buildkite.FailuresThreshold {
 				var buf bytes.Buffer
 				buf.WriteString(fmt.Sprintf("%s test failed %d times in a row on %q!\n", jobEvent.Job.Name, jobEvent.Job.RetriedCount+1, jobEvent.Build.Branch))
 				for _, url := range info.failedURLs {
