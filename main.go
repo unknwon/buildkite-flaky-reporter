@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 var Version = "dev"
 
 func main() {
-	port := flag.String("port", "4222", "The listening port number")
+	configPath := flag.String("config", "./app.ini", "The config file path")
 	flag.Parse()
 
 	if err := log.NewConsole(); err != nil {
@@ -22,7 +23,22 @@ func main() {
 	}
 	defer log.Stop()
 
+	config, err := loadConfig(*configPath)
+	if err != nil {
+		log.Fatal("Failed to load config: %v", err)
+	}
+
 	log.Info("buildkite-flaky-reporter: %v", Version)
+
+	slack := newSlackClient(config.Slack.URL)
+	buildkite := newBuildkiteClient(
+		config.Buildkite.Token,
+		config.Buildkite.OrgSlug,
+		config.Buildkite.PipelineSlug,
+	)
+	_ = buildkite
+
+	store := newStore()
 
 	m := macaron.New()
 	m.Use(macaron.Renderer())
@@ -43,13 +59,18 @@ func main() {
 
 		type JobEvent struct {
 			Job struct {
-				ID     string `json:"id"`
-				Name   string `json:"name"`
-				State  string `json:"state"`
-				WebURL string `json:"web_url"`
+				ID             string `json:"id"`
+				Name           string `json:"name"`
+				State          string `json:"state"`
+				WebURL         string `json:"web_url"`
+				Retried        bool   `json:"retried"`
+				RetriedInJobID string `json:"retried_in_job_id"`
+				RetriedCount   int    `json:"retries_count"`
 			} `json:"job"`
 			Build struct {
-				ID string `json:"id"`
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Branch string `json:"branch"`
 			} `json:"build"`
 		}
 		var jobEvent JobEvent
@@ -59,23 +80,61 @@ func main() {
 			return
 		}
 
-		// Discard jobs that are not ":chromium:".
-		if jobEvent.Job.Name != ":chromium:" {
+		// Discard builds that are not interested.
+		if jobEvent.Build.Branch != config.Buildkite.BuildBranch {
+			log.Trace("Request from %s has 'Build.Branch'=%q discarded", c.RemoteAddr(), jobEvent.Build.Branch)
+			return
+		}
+
+		// Discard jobs that are not interested.
+		if jobEvent.Job.Name != config.Buildkite.JobName {
 			log.Trace("Request from %s has 'Job.Name'=%q discarded", c.RemoteAddr(), jobEvent.Job.Name)
 			return
 		}
 
-		spew.Dump(jobEvent)
+		log.Info(spew.Sdump(jobEvent))
 		fmt.Println("------------------------------------")
 
-		// TODO: send event info to Slack
-
 		c.Status(http.StatusNoContent)
+		// Warning when failures exceeds threshold.
+		if jobEvent.Job.State == "failed" {
+			info := store.push(jobEvent.Build.Number, jobEvent.Job.WebURL)
+			if jobEvent.Job.RetriedCount >= config.Buildkite.FailuresThreshold {
+				var buf bytes.Buffer
+				buf.WriteString(fmt.Sprintf("%s test failed %d times in a row on %q!\n", jobEvent.Job.Name, jobEvent.Job.RetriedCount+1, jobEvent.Build.Branch))
+				for _, url := range info.failedURLs {
+					buf.WriteString("- " + url + "\n")
+				}
+
+				if err = slack.send(buf.String()); err != nil {
+					log.Error("Failed to send Slack message: %v", err)
+				}
+			}
+			return
+		}
+
+		// Mark as flaky test when passed after some failures.
+		if jobEvent.Job.RetriedCount > 0 {
+			var buf bytes.Buffer
+			buf.WriteString(fmt.Sprintf("%s found flaky tests on %q!\n", jobEvent.Job.Name, jobEvent.Build.Branch))
+
+			info := store.get(jobEvent.Build.Number)
+			if info != nil {
+				for _, url := range info.failedURLs {
+					buf.WriteString("- " + url + "\n")
+				}
+			} else {
+				buf.WriteString("No history found, showing passed: " + jobEvent.Job.WebURL)
+			}
+
+			if err = slack.send(buf.String()); err != nil {
+				log.Error("Failed to send Slack message: %v", err)
+			}
+		}
 	})
 
-	addr := "localhost:" + *port
-	log.Info("Listening on http://%s...", addr)
-	if err := http.ListenAndServe(addr, m); err != nil {
+	log.Info("Listening on http://%s...", config.Addr)
+	if err := http.ListenAndServe(config.Addr, m); err != nil {
 		log.Fatal("Failed to start server: %v", err)
 	}
 }
