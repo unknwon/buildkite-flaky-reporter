@@ -28,6 +28,17 @@ func main() {
 		log.Fatal("Failed to load config: %v", err)
 	}
 
+	if config.Log.Path != "" {
+		log.NewFile(log.FileConfig{
+			Level:    log.LevelInfo,
+			Filename: config.Log.Path,
+			FileRotationConfig: log.FileRotationConfig{
+				Rotate: true,
+				Daily:  true,
+			},
+		})
+	}
+
 	log.Info("buildkite-flaky-reporter: %v", Version)
 
 	slack := newSlackClient(config.Slack.URL)

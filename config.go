@@ -17,6 +17,9 @@ type config struct {
 	Slack struct {
 		URL string `ini:"url"`
 	}
+	Log struct {
+		Path string
+	}
 }
 
 func loadConfig(path string) (*config, error) {
