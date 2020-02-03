@@ -103,20 +103,8 @@ func main() {
 			return
 		}
 
-		// Discard jobs that are not interested.
-		if jobEvent.Job.Name != config.Buildkite.JobName {
-			log.Trace("Request from %s has 'Job.Name'=%q discarded", c.RemoteAddr(), jobEvent.Job.Name)
-			return
-		}
-
-		log.Info(spew.Sdump(jobEvent))
-		fmt.Println("------------------------------------")
-
-		c.Status(http.StatusNoContent)
-
 		// Send notification if the job is canceled.
 		if config.Buildkite.ReportCancel && jobEvent.Job.State == "canceled" {
-			// TODO
 			buildLink := fmt.Sprintf("<%s|%s#%d>",
 				jobEvent.Build.WebURL,
 				config.Buildkite.PipelineSlug,
@@ -134,6 +122,17 @@ func main() {
 			}
 			return
 		}
+
+		// Discard jobs that are not interested.
+		if jobEvent.Job.Name != config.Buildkite.JobName {
+			log.Trace("Request from %s has 'Job.Name'=%q discarded", c.RemoteAddr(), jobEvent.Job.Name)
+			return
+		}
+
+		log.Info(spew.Sdump(jobEvent))
+		fmt.Println("------------------------------------")
+
+		c.Status(http.StatusNoContent)
 
 		// Warning when failures exceeds threshold.
 		if jobEvent.Job.State == "failed" {
