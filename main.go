@@ -41,7 +41,7 @@ func main() {
 
 	log.Info("buildkite-flaky-reporter: %v", Version)
 
-	slack := newSlackClient(config.Slack.URL)
+	slack := newSlackClient()
 	buildkite := newBuildkiteClient(
 		config.Buildkite.Token,
 		config.Buildkite.OrgSlug,
@@ -79,9 +79,15 @@ func main() {
 				RetriedCount   int    `json:"retries_count"`
 			} `json:"job"`
 			Build struct {
-				ID     string `json:"id"`
-				Number int    `json:"number"`
-				Branch string `json:"branch"`
+				ID            string `json:"id"`
+				WebURL        string `json:"web_url"`
+				Number        int    `json:"number"`
+				Branch        string `json:"branch"`
+				TriggeredFrom struct {
+					BuildID           string `json:"build_id"`
+					BuildNumber       int    `json:"build_number"`
+					BuildPipelineSlug string `json:"build_pipeline_slug"`
+				} `json:"triggered_from"`
 			} `json:"build"`
 		}
 		var jobEvent JobEvent
@@ -107,6 +113,28 @@ func main() {
 		fmt.Println("------------------------------------")
 
 		c.Status(http.StatusNoContent)
+
+		// Send notification if the job is canceled.
+		if config.Buildkite.ReportCancel && jobEvent.Job.State == "canceled" {
+			// TODO
+			buildLink := fmt.Sprintf("<%s|%s#%d>",
+				jobEvent.Build.WebURL,
+				config.Buildkite.PipelineSlug,
+				jobEvent.Build.Number,
+			)
+			triggerLink := fmt.Sprintf("<https://buildkite.com/%[1]s/%[2]s/builds/%[3]d|%[2]s (%[4]s) #%[3]d>",
+				config.Buildkite.OrgSlug,
+				jobEvent.Build.TriggeredFrom.BuildPipelineSlug,
+				jobEvent.Build.TriggeredFrom.BuildNumber,
+				jobEvent.Build.Branch,
+			)
+			msg := fmt.Sprintf(":warning: %s was canceled for %s", buildLink, triggerLink)
+			if err = slack.send(config.Slack.CancelNotifyURL, msg); err != nil {
+				log.Error("Failed to send Slack message: %v", err)
+			}
+			return
+		}
+
 		// Warning when failures exceeds threshold.
 		if jobEvent.Job.State == "failed" {
 			info := store.push(jobEvent.Build.Number, jobEvent.Job.WebURL)
@@ -117,7 +145,7 @@ func main() {
 					buf.WriteString("- " + url + "\n")
 				}
 
-				if err = slack.send(buf.String()); err != nil {
+				if err = slack.send(config.Slack.URL, buf.String()); err != nil {
 					log.Error("Failed to send Slack message: %v", err)
 				}
 			}
@@ -138,7 +166,7 @@ func main() {
 				buf.WriteString("No history found, showing passed: " + jobEvent.Job.WebURL)
 			}
 
-			if err = slack.send(buf.String()); err != nil {
+			if err = slack.send(config.Slack.URL, buf.String()); err != nil {
 				log.Error("Failed to send Slack message: %v", err)
 			}
 		}

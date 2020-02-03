@@ -9,22 +9,15 @@ import (
 	"strings"
 )
 
-type slackClient struct {
-	url string
+type slackClient struct{}
+
+func newSlackClient() *slackClient {
+	return &slackClient{}
 }
 
-func newSlackClient(url string) *slackClient {
-	return &slackClient{
-		url: url,
-	}
-}
+func (c *slackClient) send(url, text string) error {
+	resp, err := http.DefaultClient.Post(url, "application/json",
 
-func (c *slackClient) send(text string) error {
-	if c.url == "" {
-		return nil
-	}
-
-	resp, err := http.DefaultClient.Post(c.url, "application/json",
 		strings.NewReader(
 			fmt.Sprintf(`{"text": %s}`, strconv.Quote(text)),
 		))

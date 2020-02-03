@@ -13,9 +13,11 @@ type config struct {
 		BuildBranch       string
 		JobName           string
 		FailuresThreshold int
+		ReportCancel      bool
 	}
 	Slack struct {
-		URL string `ini:"url"`
+		URL             string `ini:"url"`
+		CancelNotifyURL string `ini:"cancel_notify_url"`
 	}
 	Log struct {
 		Path string
