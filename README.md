@@ -22,3 +22,7 @@ report_cancel = true
 url = {REDACTED}
 cancel_notify_url = {REDACTED}
 ```
+
+## License
+
+This project is under the MIT License. See the [LICENSE](LICENSE) file for the full license text.
